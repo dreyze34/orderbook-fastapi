@@ -1,9 +1,10 @@
 from pydantic import BaseModel
+from decimal import Decimal
 
 from typing import Dict, List
 
-from app.models.order import Order
+from app.schemas.order import OrderResponse
 
 class OrderBookResponse(BaseModel):
-    bids: Dict[int, List[Order]]
-    asks: Dict[int, List[Order]]
+    bids: Dict[Decimal, List[OrderResponse]]
+    asks: Dict[Decimal, List[OrderResponse]]

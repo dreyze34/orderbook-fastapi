@@ -37,7 +37,7 @@ class TestOrdersHTTP(unittest.TestCase):
     def test_02_get_order_unknown(self):
         response = self.client.get("/orders/999")
         self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json(), {"detail": "Order not found."})
+        self.assertEqual(response.json(), {"detail": "Order 999 not found."})
 
     def test_02_get_order_invalid_id(self):
         self.assertEqual(self.client.get("/orders/not-an-id").status_code, 422)
@@ -101,16 +101,61 @@ class TestOrdersHTTP(unittest.TestCase):
     def test_03_create_order_unique_ids(self):
         self.assertEqual([self.create()["id"] for _ in range(3)], [1, 2, 3])
 
-    @unittest.expectedFailure
     def test_03_create_order_rejects_nonpositive_price(self):
-        """Régression connue : OrderCreate n'impose pas encore price > 0."""
+        """Un prix nul ou négatif doit être refusé."""
         responses = [self.client.post("/orders", json={"side": "buy", "price": value, "quantity": "5"}) for value in ("0", "-1")]
         self.assertEqual([r.status_code for r in responses], [422, 422])
         self.assertEqual(self.client.get("/orders").json(), [])
 
-    @unittest.expectedFailure
     def test_03_create_order_rejects_nonpositive_quantity(self):
-        """Régression connue : OrderCreate n'impose pas encore quantity > 0."""
+        """Une quantité nulle ou négative doit être refusée."""
         responses = [self.client.post("/orders", json={"side": "buy", "price": "100", "quantity": value}) for value in ("0", "-1")]
         self.assertEqual([r.status_code for r in responses], [422, 422])
         self.assertEqual(self.client.get("/orders").json(), [])
+
+    def test_04_cancel_open_order(self):
+        for side in ("buy", "sell"):
+            with self.subTest(side=side):
+                order = self.create(side)
+                response = self.client.patch(f"/orders/{order['id']}")
+                self.assertEqual(response.status_code, 200, response.text)
+                cancelled = response.json()
+                self.assertEqual(cancelled, {**order, "status": "cancelled"})
+                self.assertEqual(self.client.get(f"/orders/{order['id']}").json(), cancelled)
+
+    def test_04_cancel_partial_order_preserves_trade(self):
+        sell = self.create("sell", quantity="5")
+        self.create("buy", quantity="2")
+        before = self.client.get("/trades").json()
+        response = self.client.patch(f"/orders/{sell['id']}")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["status"], "cancelled")
+        self.assertEqual(Decimal(response.json()["remaining_quantity"]), 3)
+        self.assertEqual(self.client.get("/trades").json(), before)
+        incoming = self.create("buy", quantity="3")
+        self.assertEqual(incoming["status"], "open")
+
+    def test_04_cancel_unknown_order(self):
+        response = self.client.patch("/orders/999")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "Order 999 not found."})
+
+    def test_04_cancel_invalid_id(self):
+        self.assertEqual(self.client.patch("/orders/not-an-id").status_code, 422)
+
+    def test_04_cancel_filled_order(self):
+        sell = self.create("sell")
+        self.create("buy")
+        before = self.client.get(f"/orders/{sell['id']}").json()
+        response = self.client.patch(f"/orders/{sell['id']}")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json(), {"detail": f"Order {sell['id']} is already filled or canceled."})
+        self.assertEqual(self.client.get(f"/orders/{sell['id']}").json(), before)
+
+    def test_04_cancel_already_cancelled_order(self):
+        order = self.create()
+        url = f"/orders/{order['id']}"
+        self.assertEqual(self.client.patch(url).status_code, 200)
+        response = self.client.patch(url)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.client.get(url).json()["status"], "cancelled")

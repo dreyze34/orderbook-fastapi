@@ -2,6 +2,7 @@
 from decimal import Decimal
 import unittest
 
+from app.exceptions import OrderNotFoundError, OrderNotCancellableError
 from app.models.order import Side, OrderStatus
 from app.services.order_service import OrderService
 from app.storage.memory import InMemoryStorage
@@ -28,7 +29,8 @@ class TestOrderService(unittest.TestCase):
         self.assertEqual([o.status for o in orders], [OrderStatus.FILLED, OrderStatus.FILLED, OrderStatus.CANCELLED])
 
     def test_02_get_order_unknown(self):
-        self.assertIsNone(self.service.get_order(999))
+        with self.assertRaises(OrderNotFoundError):
+            self.service.get_order(999)
 
     def test_02_get_order_existing(self):
         order = self.place()
@@ -56,7 +58,8 @@ class TestOrderService(unittest.TestCase):
         self.assertTrue(all(t.buy_order_id == buy.id for t in self.storage.trades.values()))
 
     def test_04_cancel_order_unknown(self):
-        self.assertIsNone(self.service.cancel_order(999))
+        with self.assertRaises(OrderNotFoundError):
+            self.service.cancel_order(999)
 
     def test_04_cancel_open_order_removes_it_from_matching(self):
         for side in (Side.BUY, Side.SELL):
@@ -81,12 +84,14 @@ class TestOrderService(unittest.TestCase):
     def test_04_cancel_filled_order_does_not_change_status(self):
         sell = self.place(Side.SELL)
         self.place()
-        self.service.cancel_order(sell.id)
+        with self.assertRaises(OrderNotCancellableError):
+            self.service.cancel_order(sell.id)
         self.assertEqual(sell.status, OrderStatus.FILLED)
 
-    def test_04_cancel_order_twice_is_idempotent(self):
+    def test_04_cancel_order_twice_raises_conflict(self):
         order = self.place()
         self.service.cancel_order(order.id)
-        self.service.cancel_order(order.id)
+        with self.assertRaises(OrderNotCancellableError):
+            self.service.cancel_order(order.id)
         self.assertEqual(order.status, OrderStatus.CANCELLED)
         self.assertFalse(self.storage.orderbook.bids)
