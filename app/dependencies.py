@@ -5,3 +5,6 @@ def get_order_service(request: Request):
 
 def get_trade_service(request: Request):
     return request.app.state.trade_service
+
+def get_orderbook_service(request: Request):
+    return request.app.state.orderbook_service
