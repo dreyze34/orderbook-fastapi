@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Literal
 from enum import Enum
 from decimal import Decimal
 

@@ -1,4 +1,5 @@
-from app.models.order import Order
+from typing import List
+
 from app.models.trade import Trade
 
 from app.storage.memory import InMemoryStorage
@@ -9,7 +10,7 @@ class TradeService:
     def __init__(self, storage: InMemoryStorage):
         self.storage = storage
 
-    def get_trade(self, trade_id: int):
+    def get_trade(self, trade_id: int) -> Trade:
         with self.storage.lock:
             trade = self.storage.trades.get(trade_id)
             if not trade:
@@ -17,6 +18,6 @@ class TradeService:
 
         return trade
 
-    def get_trades(self):
+    def get_trades(self) -> List[Trade]:
         with self.storage.lock:
             return self.storage.trades.values()

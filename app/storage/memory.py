@@ -1,7 +1,7 @@
 from itertools import count
 from threading import Lock
 
-from typing import List, Dict, Deque
+from typing import Dict
 from app.models.order import Order
 from app.models.trade import Trade
 from app.models.orderbook import OrderBook

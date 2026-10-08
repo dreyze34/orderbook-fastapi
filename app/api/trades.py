@@ -1,7 +1,6 @@
-from typing import List, Dict, Annotated
-import time
+from typing import Annotated
 
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.services.trade_service import TradeService
 from app.dependencies import get_trade_service
