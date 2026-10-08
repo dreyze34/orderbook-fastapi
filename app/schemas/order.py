@@ -1,14 +1,17 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Literal
+from decimal import Decimal
+
+from app.models.order import Side, OrderStatus
 
 class OrderCreate(BaseModel):
-    symbol: str
-    side: Literal["BUY", "SELL"]
-    price: int
-    quantity: int
+    side: Side
+    price: Decimal = Field(gt=0)
+    quantity: Decimal = Field(gt=0)
 
 class OrderResponse(OrderCreate):
     model_config = ConfigDict(from_attributes=True)
 
-    order_id: int
-    timestamp: int
+    id: int
+    side: Side
+    remaining_quantity: Decimal
+    status: OrderStatus

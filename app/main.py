@@ -2,18 +2,15 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.services.orderbooks import OrderBook
+from app.storage.memory import InMemoryStorage
+from app.services.order_service import OrderService
 
-from app.routers import orders
-
-symbols = ["BTCUSD", "ETHUSD", "SOLUSD"]
+from app.api import orders
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    orderbooks = {symbol: OrderBook(symbol) for symbol in symbols}
-    next_id = 0
-    app.state.orderbooks = orderbooks
-    app.state.next_id = next_id
+    storage = InMemoryStorage()
+    app.state.order_service = OrderService(storage)
     yield
 
 app = FastAPI(title="Orderbook API", version="0.1.0", lifespan=lifespan)

@@ -2,49 +2,47 @@
 
 import unittest
 
-from app.domain.orderbook import OrderBook
-from app.schemas.schemas import Order
+from app.models.orderbook import OrderBook
+from app.models.order import Order, Side, OrderStatus
+from decimal import Decimal
 
 
 def make_order(order_id, side, price, quantity):
     return Order(
-        order_id=order_id,
-        symbol="BTC-EUR",
-        side=side,
-        price=price,
-        quantity=quantity,
+        id=order_id,
+        side=Side(side.lower()),
+        price=Decimal(price),
+        quantity=Decimal(quantity),
+        remaining_quantity=Decimal(quantity),
     )
 
 
 class TestOrderBook(unittest.TestCase):
     def assert_consistent(self, book):
-        """Les files et l'index doivent contenir les mêmes ordres actifs."""
+        """Chaque ordre actif appartient à un seul niveau non vide."""
         active = {}
-        for side, levels in (("BUY", book.bids), ("SELL", book.asks)):
+        for side, levels in ((Side.BUY, book.bids), (Side.SELL, book.asks)):
             for price, queue in levels.items():
                 self.assertTrue(queue, "Un niveau vide doit être supprimé")
                 for order in queue:
                     self.assertEqual(order.side, side)
                     self.assertEqual(order.price, price)
-                    self.assertGreater(order.quantity, 0)
-                    self.assertNotIn(order.order_id, active)
-                    self.assertIs(book.orders[order.order_id], order)
-                    active[order.order_id] = order
-        self.assertEqual(set(book.orders), set(active))
+                    self.assertGreater(order.remaining_quantity, 0)
+                    self.assertNotIn(order.id, active)
+                    active[order.id] = order
         if book.bids and book.asks:
             self.assertLess(book.best_bid(), book.best_ask())
 
     def assert_trade(self, trade, buy_id, sell_id, price, quantity):
-        self.assertEqual(trade.buy_order_id, buy_id)
-        self.assertEqual(trade.sell_order_id, sell_id)
-        self.assertEqual(trade.price_executed, price)
-        self.assertEqual(trade.quantity_executed, quantity)
+        self.assertEqual(trade["buy_order_id"], buy_id)
+        self.assertEqual(trade["sell_order_id"], sell_id)
+        self.assertEqual(trade["price"], price)
+        self.assertEqual(trade["quantity"], quantity)
 
     def test_empty_book(self):
         book = OrderBook()
         self.assertIsNone(book.best_bid())
         self.assertIsNone(book.best_ask())
-        self.assertEqual(book.orders, {})
 
     def test_insert_orders_and_best_prices(self):
         book = OrderBook()
@@ -60,8 +58,8 @@ class TestOrderBook(unittest.TestCase):
             self.assertEqual(book.add_order(order), [])
         self.assertEqual(book.best_bid(), 100)
         self.assertEqual(book.best_ask(), 102)
-        self.assertEqual([o.order_id for o in book.bids[100]], [2, 3])
-        self.assertEqual([o.order_id for o in book.asks[102]], [5, 6])
+        self.assertEqual([o.id for o in book.bids[100]], [2, 3])
+        self.assertEqual([o.id for o in book.asks[102]], [5, 6])
         self.assert_consistent(book)
 
     def test_exact_fill_at_resting_price(self):
@@ -78,9 +76,10 @@ class TestOrderBook(unittest.TestCase):
                 self.assertEqual(len(trades), 1)
                 buy_id, sell_id = (2, 1) if incoming_side == "BUY" else (1, 2)
                 self.assert_trade(trades[0], buy_id, sell_id, 100, 5)
-                self.assertEqual(resting.quantity, 0)
-                self.assertEqual(incoming.quantity, 0)
-                self.assertEqual(book.orders, {})
+                self.assertEqual(resting.remaining_quantity, 0)
+                self.assertEqual(resting.status, OrderStatus.FILLED)
+                self.assertEqual(incoming.remaining_quantity, 0)
+                self.assertEqual(incoming.status, OrderStatus.FILLED)
                 self.assertIsNone(book.best_bid())
                 self.assertIsNone(book.best_ask())
                 self.assert_consistent(book)
@@ -94,10 +93,11 @@ class TestOrderBook(unittest.TestCase):
                 book.add_order(resting)
                 trades = book.add_order(incoming)
                 self.assertEqual(len(trades), 1)
-                self.assertEqual(trades[0].quantity_executed, 4)
-                self.assertEqual(resting.quantity, 6)
-                self.assertEqual(incoming.quantity, 0)
-                self.assertEqual(set(book.orders), {1})
+                self.assertEqual(trades[0]["quantity"], 4)
+                self.assertEqual(resting.remaining_quantity, 6)
+                self.assertEqual(resting.status, OrderStatus.PARTIALLY_FILLED)
+                self.assertEqual(incoming.remaining_quantity, 0)
+                self.assertEqual(incoming.status, OrderStatus.FILLED)
                 levels = book.asks if resting_side == "SELL" else book.bids
                 self.assertIs(levels[100][0], resting)
                 self.assert_consistent(book)
@@ -110,9 +110,9 @@ class TestOrderBook(unittest.TestCase):
                 incoming = make_order(2, incoming_side, 100, 8)
                 trades = book.add_order(incoming)
                 self.assertEqual(len(trades), 1)
-                self.assertEqual(trades[0].quantity_executed, 3)
-                self.assertEqual(incoming.quantity, 5)
-                self.assertEqual(set(book.orders), {2})
+                self.assertEqual(trades[0]["quantity"], 3)
+                self.assertEqual(incoming.remaining_quantity, 5)
+                self.assertEqual(incoming.status, OrderStatus.PARTIALLY_FILLED)
                 levels = book.bids if incoming_side == "BUY" else book.asks
                 self.assertIs(levels[100][0], incoming)
                 self.assert_consistent(book)
@@ -129,13 +129,12 @@ class TestOrderBook(unittest.TestCase):
                 incoming = make_order(30, incoming_side, 100, 5)
                 trades = book.add_order(incoming)
                 resting_ids = [
-                    t.sell_order_id if incoming_side == "BUY" else t.buy_order_id
+                    t["sell_order_id"] if incoming_side == "BUY" else t["buy_order_id"]
                     for t in trades
                 ]
                 self.assertEqual(resting_ids, [20, 10])
-                self.assertEqual([t.quantity_executed for t in trades], [3, 2])
-                self.assertEqual(second.quantity, 2)
-                self.assertEqual(set(book.orders), {10})
+                self.assertEqual([t["quantity"] for t in trades], [3, 2])
+                self.assertEqual(second.remaining_quantity, 2)
                 self.assert_consistent(book)
 
     def test_price_priority_and_limit_across_levels(self):
@@ -150,11 +149,11 @@ class TestOrderBook(unittest.TestCase):
                     book.add_order(make_order(index + 1, resting_side, prices[index], 2))
                 incoming = make_order(4, incoming_side, limit, 7)
                 trades = book.add_order(incoming)
-                self.assertEqual([t.price_executed for t in trades], prices[:2])
-                self.assertEqual([t.quantity_executed for t in trades], [2, 2])
-                self.assertEqual(incoming.quantity, 3)
-                self.assertEqual(book.orders[3].quantity, 2)
-                self.assertEqual(set(book.orders), {3, 4})
+                self.assertEqual([t["price"] for t in trades], prices[:2])
+                self.assertEqual([t["quantity"] for t in trades], [2, 2])
+                self.assertEqual(incoming.remaining_quantity, 3)
+                levels = book.asks if resting_side == "SELL" else book.bids
+                self.assertEqual(levels[Decimal(prices[2])][0].remaining_quantity, 2)
                 self.assert_consistent(book)
 
 
