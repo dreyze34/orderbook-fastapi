@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+
+# Tests, couverture et outils de verification
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# Configuration locale et secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Editeurs et systeme
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Journaux
+*.log
